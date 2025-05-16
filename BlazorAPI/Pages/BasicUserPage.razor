@@ -1,0 +1,592 @@
+﻿@page "/profile"
+@rendermode RenderMode.InteractiveServer
+@inject IHttpClientFactory HttpClientFactory
+@inject ILocalStorageService LocalStorage
+@inject NavigationManager Navigation
+@inject NotificationService NotificationService
+@using System.IdentityModel.Tokens.Jwt
+@using System.Security.Claims
+@using BlazorAPI.ApiRequest
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Web
+@using Blazored.LocalStorage
+@using System.Net.Http.Headers
+@using System.Text.Encodings.Web
+@using System.Timers
+
+<style>
+    /* Стили для навигационной панели */
+    .nav-panel {
+        width: 80px;
+        background-color: #1f1f1f;
+        height: 100vh;
+        position: fixed;
+        left: 0;
+        top: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 20px;
+    }
+
+    .nav-button {
+        background: none;
+        border: none;
+        color: #ffffff;
+        cursor: pointer;
+        margin: 10px 0;
+        padding: 10px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 60px;
+        height: 60px;
+    }
+
+        .nav-button:hover {
+            background-color: #333333;
+        }
+
+        .nav-button.active {
+            background-color: #444444;
+            border: 2px solid #ffffff;
+        }
+
+    .logout-button {
+        margin-top: auto;
+        margin-bottom: 20px;
+    }
+
+    .main-content {
+        margin-left: 80px;
+        padding: 20px;
+    }
+
+    /* Остальные стили */
+    body {
+        background-color: #121212;
+        color: #ffffff;
+        font-family: 'Comic Sans MS', cursive, sans-serif;
+    }
+
+    .header {
+        background-color: #1f1f1f;
+        padding: 20px;
+        text-align: center;
+        font-size: 24px;
+        font-weight: bold;
+        color: #ffffff;
+    }
+
+    .profile-container {
+        padding: 20px;
+        max-width: 600px;
+        margin: 0 auto;
+    }
+
+    .profile-info {
+        background-color: #1f1f1f;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+        .profile-info p {
+            margin: 10px 0;
+        }
+
+    .button-container {
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .action-button {
+        padding: 8px 16px;
+        background-color: #444444;
+        color: #ffffff;
+        border: none;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+
+        .action-button:hover {
+            background-color: #555555;
+        }
+
+    .logout-button {
+        background-color: #ff4444;
+        color: #ffffff;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+
+        .logout-button:hover {
+            background-color: #cc0000;
+        }
+
+    .edit-form {
+        background-color: #1f1f1f;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+        .edit-form div {
+            margin-bottom: 15px;
+        }
+
+        .edit-form label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .edit-form input {
+            width: 100%;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background-color: #333;
+            color: #fff;
+        }
+
+        .edit-form .button-container {
+            display: flex;
+            gap: 10px;
+        }
+
+    .password-container {
+        position: relative;
+    }
+
+    .toggle-password-button {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: #fff;
+        cursor: pointer;
+    }
+
+    .notification-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+    }
+
+    .notification {
+        padding: 10px 20px;
+        margin-bottom: 10px;
+        border-radius: 5px;
+        color: white;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        animation: fadeIn 0.5s;
+    }
+
+        .notification.success {
+            background-color: #4CAF50;
+        }
+
+        .notification.error {
+            background-color: #F44336;
+        }
+
+        .notification button {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+    @@keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateX(100%);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+</style>
+
+<!-- Навигационная панель -->
+<div class="nav-panel">
+    <button class="nav-button" @onclick="NavigateToHome">
+        🏠
+    </button>
+    <button class="nav-button @(IsProfilePage() ? "active" : "")" @onclick="NavigateToProfile">
+        👤
+    </button>
+    <button class="nav-button @(IsMoviesPage() ? "active" : "")" @onclick="NavigateToMovies">
+        🎬
+    </button>
+    <button class="nav-button @(IsChatsPage() ? "active" : "")" @onclick="NavigateToChats">
+        💬
+    </button>
+    <button class="nav-button logout-button" @onclick="Logout">
+        🔒
+    </button>
+</div>
+
+<!-- Основной контент -->
+<div class="main-content">
+    <div class="header">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Личный кабинет</span>
+        </div>
+    </div>
+
+    <div class="profile-container">
+        @if (!isEditMode)
+        {
+            <h1>Добро пожаловать, @(user?.Name ?? "Гость")!</h1>
+            <div class="profile-info">
+                <h3>Ваши данные</h3>
+                @if (isLoading)
+                {
+                    <p>Загрузка...</p>
+                }
+                else if (user == null)
+                {
+                    <p>Нет данных о пользователе.</p>
+                }
+                else
+                {
+                    <p><strong>Имя:</strong> @user.Name</p>
+                    <p><strong>Описание:</strong> @user.Description</p>
+                    <p><strong>Email:</strong> @user.Email</p>
+                }
+            </div>
+
+            <div class="button-container">
+                <button class="action-button" @onclick="ToggleEditMode">Изменить профиль</button>
+            </div>
+        }
+        else
+        {
+            <div class="edit-form">
+                <h3>Редактирование профиля</h3>
+                <div>
+                    <label>Имя:</label>
+                    <input @bind="editUser.Name" />
+                </div>
+                <div>
+                    <label>Описание:</label>
+                    <input @bind="editUser.Description" />
+                </div>
+                <div>
+                    <label>Новый пароль:</label>
+                    <div class="password-container">
+                        <input type="@(showPassword ? "text" : "password")" @bind="newPassword" />
+                        <button class="toggle-password-button" @onclick="TogglePasswordVisibility">
+                            @if (showPassword)
+                            {
+                                <span>👁️</span>
+                            }
+                            else
+                            {
+                                <span>👁️‍🗨️</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+                <div class="button-container">
+                    <button class="action-button" @onclick="SaveProfile">Сохранить</button>
+                    <button class="action-button" @onclick="ToggleEditMode">Отменить</button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Уведомления -->
+<div class="notification-container">
+    @foreach (var notification in Notifications)
+    {
+        <div class="notification @notification.Type">
+            <span>@notification.Message</span>
+            <button @onclick="() => RemoveNotification(notification.Id)">×</button>
+        </div>
+    }
+</div>
+
+@code {
+    private UserDto user;
+    private UserDto editUser = new UserDto();
+    private bool isLoading = true;
+    private bool isEditMode = false;
+    private bool isFirstRender = true;
+    private bool showPassword = false;
+    private string newPassword = "";
+
+    private List<NotificationService.NotificationModel> Notifications = new List<NotificationService.NotificationModel>();
+
+    protected override void OnInitialized()
+    {
+        NotificationService.OnNotificationAdded += HandleNotificationAdded;
+    }
+
+    private void HandleNotificationAdded(NotificationService.NotificationModel notification)
+    {
+        Notifications.Add(notification);
+        StateHasChanged();
+
+        var timer = new Timer(5000);
+        timer.Elapsed += (sender, args) =>
+        {
+            InvokeAsync(() =>
+            {
+                RemoveNotification(notification.Id);
+                StateHasChanged();
+            });
+            timer.Dispose();
+        };
+        timer.Start();
+    }
+
+    private void RemoveNotification(Guid id)
+    {
+        var notification = Notifications.FirstOrDefault(n => n.Id == id);
+        if (notification != null)
+        {
+            Notifications.Remove(notification);
+        }
+    }
+
+    private bool IsProfilePage()
+    {
+        return Navigation.Uri.EndsWith("/profile");
+    }
+
+    private bool IsMoviesPage()
+    {
+        return Navigation.Uri.EndsWith("/movies");
+    }
+
+    private bool IsChatsPage()
+    {
+        return Navigation.Uri.EndsWith("/chats");
+    }
+
+    private void NavigateToHome()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+    private void NavigateToProfile()
+    {
+        Navigation.NavigateTo("/profile");
+    }
+
+    private void NavigateToMovies()
+    {
+        Navigation.NavigateTo("/movies");
+    }
+
+    private void NavigateToChats()
+    {
+        Navigation.NavigateTo("/chats");
+    }
+
+    private void TogglePasswordVisibility()
+    {
+        showPassword = !showPassword;
+    }
+
+    private bool IsTokenValid(string token)
+    {
+        try
+        {
+            var handler = new JwtSecurityTokenHandler();
+            var jwtToken = handler.ReadJwtToken(token);
+            var expirationDate = jwtToken.ValidTo;
+            return expirationDate > DateTime.UtcNow;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private UserDto ExtractUserFromToken(string token)
+    {
+        try
+        {
+            var handler = new JwtSecurityTokenHandler();
+            var jwtToken = handler.ReadJwtToken(token);
+
+            var user = new UserDto
+                {
+                    Id = int.Parse(jwtToken.Claims.First(c => c.Type == ClaimTypes.NameIdentifier).Value),
+                    Name = jwtToken.Claims.First(c => c.Type == ClaimTypes.Name).Value,
+                    Description = jwtToken.Claims.First(c => c.Type == "description").Value,
+                    Role = jwtToken.Claims.First(c => c.Type == ClaimTypes.Role).Value,
+                    Email = jwtToken.Claims.First(c => c.Type == ClaimTypes.Email).Value,
+                    Logins = jwtToken.Claims
+                                .Where(c => c.Type == "logins")
+                                .Select(c => c.Value)
+                                .ToList()
+                };
+
+            Console.WriteLine("Данные пользователя извлечены из токена.");
+            return user;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Ошибка при извлечении данных из токена: " + ex.Message);
+            return null;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            isFirstRender = false;
+            await LoadUserDataAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadUserDataAsync()
+    {
+        Console.WriteLine("Начало выполнения LoadUserDataAsync...");
+
+        var token = await LocalStorage.GetItemAsync<string>("authToken");
+        Console.WriteLine($"Токен из LocalStorage: {token}");
+
+        if (string.IsNullOrEmpty(token) || !IsTokenValid(token))
+        {
+            Console.WriteLine("Токен отсутствует или истек. Попытка обновления...");
+            token = await RefreshTokenAsync();
+
+            if (string.IsNullOrEmpty(token))
+            {
+                Console.WriteLine("Не удалось обновить токен. Перенаправление на страницу входа.");
+                Navigation.NavigateTo("/login");
+                return;
+            }
+        }
+
+        user = ExtractUserFromToken(token);
+        editUser = new UserDto
+            {
+                Id = user.Id,
+                Name = user.Name,
+                Description = user.Description,
+                Email = user.Email,
+                Role = user.Role
+            };
+
+        isLoading = false;
+        Console.WriteLine("Завершение выполнения LoadUserDataAsync.");
+    }
+
+    private async Task<string> RefreshTokenAsync()
+    {
+        var refreshToken = await LocalStorage.GetItemAsync<string>("refreshToken");
+        var httpClient = HttpClientFactory.CreateClient("AuthorizedClient");
+        var response = await httpClient.PostAsJsonAsync("api/Auth/RefreshToken", new { RefreshToken = refreshToken });
+
+        if (response.IsSuccessStatusCode)
+        {
+            var newToken = await response.Content.ReadAsStringAsync();
+            await LocalStorage.SetItemAsync("authToken", newToken);
+            return newToken;
+        }
+        else
+        {
+            Console.WriteLine("Ошибка при обновлении токена.");
+            await LocalStorage.RemoveItemAsync("authToken");
+            await LocalStorage.RemoveItemAsync("refreshToken");
+            Navigation.NavigateTo("/login");
+            return null;
+        }
+    }
+
+    private async Task SaveProfile()
+    {
+        try
+        {
+            var httpClient = HttpClientFactory.CreateClient("AuthorizedClient");
+
+            var token = await LocalStorage.GetItemAsync<string>("authToken");
+
+            if (string.IsNullOrEmpty(token))
+            {
+                Console.WriteLine("Токен отсутствует или пуст.");
+                return;
+            }
+
+            var updateRequest = new UpdateUserRequest
+                {
+                    Id = user.Id,
+                    Name = string.IsNullOrWhiteSpace(editUser.Name) ? user.Name : editUser.Name,
+                    Description = string.IsNullOrWhiteSpace(editUser.Description) ? user.Description : editUser.Description,
+                    Password = string.IsNullOrWhiteSpace(newPassword) ? null : newPassword
+                };
+
+            Console.WriteLine("Отправляемые данные:");
+            Console.WriteLine(JsonSerializer.Serialize(updateRequest));
+
+            var response = await httpClient.PutAsJsonAsync("api/UserLogin/UpdateUserInfo", updateRequest);
+
+            if (response.IsSuccessStatusCode)
+            {
+                user.Name = updateRequest.Name;
+                user.Description = updateRequest.Description;
+                if (!string.IsNullOrWhiteSpace(newPassword))
+                {
+                    newPassword = "";
+                }
+                ToggleEditMode();
+                NotificationService.ShowSuccess("Профиль успешно обновлен!");
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"Ошибка: {response.StatusCode}. {errorContent}");
+                NotificationService.ShowError("Ошибка при обновлении профиля.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Ошибка: " + ex.Message);
+            NotificationService.ShowError("Произошла ошибка при обновлении профиля.");
+        }
+    }
+
+    private void ToggleEditMode()
+    {
+        isEditMode = !isEditMode;
+    }
+
+    private async Task Logout()
+    {
+        await LocalStorage.RemoveItemAsync("authToken");
+        await LocalStorage.RemoveItemAsync("refreshToken");
+        Navigation.NavigateTo("/login");
+    }
+
+    public class UserDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public string Role { get; set; }
+        public string Email { get; set; }
+        public List<string> Logins { get; set; } = new List<string>();
+    }
+}

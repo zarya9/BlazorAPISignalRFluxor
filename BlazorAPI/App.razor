@@ -1,0 +1,108 @@
+﻿@using System.Net.Http
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@using Microsoft.JSInterop
+@using BlazorAPI
+@using BlazorAPI.Components
+@using BlazorAPI.Layout
+@using Blazored.LocalStorage
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.IdentityModel.Tokens.Jwt
+
+@inject NavigationManager Navigation
+@inject ILocalStorageService LocalStorage
+
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+                <NotAuthorized>
+                    <p>Вы не авторизованы для просмотра этой страницы.</p>
+                    <button @onclick="RedirectToLogin">Войти</button>
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <LayoutView Layout="@typeof(MainLayout)">
+                <p>Извините, по этому адресу ничего нет.</p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>
+
+@code {
+    private bool isInitialized = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!isInitialized)
+        {
+            var token = await LocalStorage.GetItemAsync<string>("authToken");
+
+            if (!string.IsNullOrEmpty(token) && IsTokenValid(token))
+            {
+                var role = GetUserRoleFromToken(token);
+
+                if (role == "Администратор")
+                {
+                    Navigation.NavigateTo("/users"); // Страница для администратора
+                }
+                else
+                {
+                    Navigation.NavigateTo("/profile"); // Страница для обычного пользователя
+                }
+            }
+            else
+            {
+                Navigation.NavigateTo("/login");
+            }
+
+            isInitialized = true;
+        }
+    }
+
+    private bool IsTokenValid(string token)
+    {
+        try
+        {
+            var handler = new JwtSecurityTokenHandler();
+            var jwtToken = handler.ReadJwtToken(token);
+            var expirationDate = jwtToken.ValidTo;
+            return expirationDate > DateTime.UtcNow;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private string GetUserRoleFromToken(string token)
+    {
+        try
+        {
+            var handler = new JwtSecurityTokenHandler();
+            var jwtToken = handler.ReadJwtToken(token);
+
+            // Используем стандартный ключ для роли
+            var role = jwtToken.Claims
+                .FirstOrDefault(c => c.Type == "http://schemas.microsoft.com/ws/2008/06/identity/claims/role")?.Value;
+
+            return role;
+        }
+        catch
+        {
+            // В случае ошибки возвращаем null
+            return null;
+        }
+    }
+
+    private void RedirectToLogin()
+    {
+        Navigation.NavigateTo("/login");
+    }
+}

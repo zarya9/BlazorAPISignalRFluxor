@@ -1,0 +1,401 @@
+﻿@page "/chats"
+@using BlazorAPI.Components
+@using BlazorAPI.ApiRequest.Model
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using Blazored.LocalStorage
+@using System.IdentityModel.Tokens.Jwt
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JSRuntime
+@inject HttpClient Http
+@inject NotificationService NotificationService
+@inject ILocalStorageService LocalStorage
+@rendermode RenderMode.InteractiveServer
+
+<style>
+    .nav-panel {
+        width: 100px;
+        background-color: #1f1f1f;
+        height: 100vh;
+        position: fixed;
+        left: 0;
+        top: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 20px;
+    }
+
+    .nav-button {
+        background: none;
+        border: none;
+        color: #ffffff;
+        cursor: pointer;
+        margin: 10px 0;
+        padding: 10px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 60px;
+        height: 60px;
+    }
+
+        .nav-button:hover {
+            background-color: #333333;
+        }
+
+        .nav-button.active {
+            background-color: #444444;
+            border: 2px solid #ffffff;
+        }
+
+    .logout-button {
+        margin-top: auto;
+        margin-bottom: 20px;
+    }
+
+    .main-content {
+        margin-left: 80px;
+        padding: 20px;
+        height: calc(100vh - 40px);
+    }
+
+    .chat-page {
+        display: flex;
+        height: 100%;
+        background-color: #121212;
+    }
+
+    .chat-list-container {
+        width: 300px;
+        height: 100%;
+        background-color: #1f1f1f;
+        overflow-y: auto;
+        padding: 20px;
+        border-right: 1px solid #444444;
+    }
+
+    .chat-window-container {
+        flex: 1;
+        height: 100%;
+        background-color: #2d2d2d;
+        padding: 20px;
+        overflow-y: auto;
+    }
+
+    .chats-container {
+        background-color: #1f1f1f;
+        border-radius: 8px;
+        padding: 20px;
+        height: calc(100% - 40px);
+        overflow-y: auto;
+    }
+
+    .chat-item {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        margin-bottom: 10px;
+        background-color: #2d2d2d;
+        border-radius: 8px;
+        cursor: pointer;
+        border: none;
+        width: 100%;
+        text-align: left;
+        color: #ffffff;
+    }
+
+        .chat-item:hover {
+            background-color: #333333;
+        }
+
+    .chat-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background-color: #4CAF50;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        color: white;
+        margin-right: 10px;
+    }
+
+    .chat-info {
+        flex: 1;
+    }
+
+    .chat-name {
+        font-weight: bold;
+        color: #ffffff;
+    }
+
+    .chat-last-message {
+        font-size: 0.9em;
+        color: #888;
+    }
+
+    .chat-time {
+        font-size: 0.8em;
+        color: #888;
+    }
+
+    .loading-text {
+        text-align: center;
+        margin-top: 20px;
+        color: #ffffff;
+    }
+
+    .no-data-text {
+        text-align: center;
+        margin-top: 20px;
+        color: #888;
+    }
+
+    .chat-header {
+        font-size: 1.5em;
+        font-weight: bold;
+        color: #ffffff;
+        margin-bottom: 20px;
+    }
+
+    .chat-messages {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        height: calc(100% - 100px);
+        overflow-y: auto;
+    }
+
+    .message {
+        padding: 10px;
+        border-radius: 8px;
+        background-color: #444444;
+        color: #ffffff;
+        max-width: 70%;
+    }
+
+        .message.my-message {
+            align-self: flex-end;
+            background-color: #4CAF50;
+        }
+
+        .message.other-message {
+            align-self: flex-start;
+            background-color: #333333;
+        }
+
+    .message-time {
+        font-size: 0.8em;
+        color: #888;
+        margin-top: 5px;
+    }
+
+    .chat-input {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+
+        .chat-input input {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #444444;
+            background-color: #333333;
+            color: #ffffff;
+        }
+
+        .chat-input button {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            background-color: #4CAF50;
+            color: #ffffff;
+            cursor: pointer;
+        }
+
+            .chat-input button:hover {
+                background-color: #45a049;
+            }
+</style>
+
+<div class="nav-panel">
+    <button class="nav-button" @onclick="NavigateToHome">🏠</button>
+    <button class="nav-button @(IsProfilePage() ? "active" : "")" @onclick="NavigateToProfile">👤</button>
+    <button class="nav-button @(IsMoviesPage() ? "active" : "")" @onclick="NavigateToMovies">🎬</button>
+    <button class="nav-button @(IsChatsPage() ? "active" : "")" @onclick="NavigateToChats">💬</button>
+    <button class="nav-button logout-button" @onclick="Logout">🔒</button>
+</div>
+
+<div class="main-content">
+    <div class="chat-page">
+        <div class="chat-list-container">
+            @if (_isUserIdLoaded)
+            {
+                <ChatList UserIdentifier="@UserId" OnChatSelected="OnChatSelected" />
+            }
+            else
+            {
+                <p class="loading-text">Загрузка...</p>
+            }
+        </div>
+        <div class="chat-window-container">
+            <ChatWindow SelectedRecipientId="@SelectedRecipientId" SelectedChatUserName="SelectedChatUserName" />
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ChatDto> Chats = new();
+    private bool IsLoading = true;
+    private bool _isDisposed = false;
+    private bool _isNavigating = false;
+    private int SelectedRecipientId = 0;
+    private string SelectedChatUserName = string.Empty;
+    private int UserId;
+    private bool _isUserIdLoaded = false;
+    private string authToken = null;
+    private CancellationTokenSource _cancellationTokenSource = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUserDataAndChats();
+    }
+
+    private async Task LoadUserDataAndChats()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            if (user.Identity?.IsAuthenticated == true)
+            {
+                authToken = await LocalStorage.GetItemAsync<string>("authToken");
+
+                if (!string.IsNullOrEmpty(authToken))
+                {
+                    UserId = GetUserIdFromToken(authToken);
+                    _isUserIdLoaded = true;
+
+                    // Если пользователь загружен, загружаем чаты
+                    await LoadChats();
+                }
+                else
+                {
+                    NotificationService.ShowError("Необходима аутентификация.");
+                }
+            }
+            else
+            {
+                NotificationService.ShowError("Пользователь не аутентифицирован.");
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.ShowError($"Ошибка при загрузке данных пользователя: {ex.Message}");
+        }
+    }
+
+    private async Task LoadChats()
+    {
+        if (_isDisposed) return;
+
+        try
+        {
+            IsLoading = true;
+            await InvokeAsync(StateHasChanged);
+
+            if (string.IsNullOrEmpty(authToken))
+            {
+                NotificationService.ShowError("Необходима аутентификация.");
+                return;
+            }
+
+            Http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authToken);
+
+            var messages = await Http.GetFromJsonAsync<List<ChatMessage>>($"api/Chat/dialogs/{UserId}", _cancellationTokenSource.Token);
+
+            if (!_isDisposed && messages != null && messages.Any())
+            {
+                Chats = messages
+                    .GroupBy(m => m.RecipientId == UserId ? m.UserId : m.RecipientId)
+                    .Select(g =>
+                    {
+                        var lastMessage = g.OrderByDescending(m => m.SentAt).FirstOrDefault();
+                        return new ChatDto
+                            {
+                                Id = g.Key ?? 0,
+                                UserName = lastMessage?.RecipientId == UserId
+                                            ? lastMessage?.User?.Name
+                                            : lastMessage?.Recipient?.Name ?? "Неизвестный",
+                                LastMessage = lastMessage?.Message ?? "Нет сообщений",
+                                LastMessageTime = lastMessage?.SentAt ?? DateTime.MinValue
+                            };
+                    })
+                    .OrderByDescending(chat => chat.LastMessageTime)
+                    .ToList();
+
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.ShowError($"Ошибка при загрузке диалогов: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnChatSelected((int RecipientId, string UserName) chatInfo)
+    {
+        Console.WriteLine($"Выбран чат с пользователем ID: {chatInfo.RecipientId}, Пользователь: {chatInfo.UserName}");
+        SelectedRecipientId = chatInfo.RecipientId;
+        SelectedChatUserName = chatInfo.UserName;
+    }
+
+    private int GetUserIdFromToken(string token)
+    {
+        try
+        {
+            var handler = new JwtSecurityTokenHandler();
+            var jwtToken = handler.ReadJwtToken(token);
+            var userIdClaim = jwtToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+            return int.TryParse(userIdClaim, out int id) ? id : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private bool IsProfilePage() => Navigation.Uri.EndsWith("/profile");
+    private bool IsMoviesPage() => Navigation.Uri.EndsWith("/movies");
+    private bool IsChatsPage() => Navigation.Uri.EndsWith("/chats");
+
+    private void NavigateToHome() => Navigation.NavigateTo("/");
+    private void NavigateToProfile() => Navigation.NavigateTo("/profile");
+    private void NavigateToMovies() => Navigation.NavigateTo("/movies");
+    private void NavigateToChats() => Navigation.NavigateTo("/chats");
+
+    private async Task Logout()
+    {
+        await LocalStorage.RemoveItemAsync("authToken");
+        Navigation.NavigateTo("/login");
+    }
+
+    public void Dispose()
+    {
+        _isDisposed = true;
+        _cancellationTokenSource.Cancel();
+        _cancellationTokenSource.Dispose();
+    }
+}

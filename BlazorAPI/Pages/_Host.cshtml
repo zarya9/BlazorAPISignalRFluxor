@@ -1,0 +1,29 @@
+﻿@page "/"
+@namespace BlazorAPI
+
+@using Microsoft.AspNetCore.Components.Web
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@{
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="~/" />
+    <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="YourProjectName.styles.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+</head>
+<body>
+    <component type="typeof(App)" render-mode="Server" />
+
+    <script src="_framework/blazor.server.js"></script>
+   
+    <script src="js/site.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,263 @@
+﻿@using System.Collections.Generic
+@using Microsoft.AspNetCore.Components
+@using BlazorAPI.ApiRequest.Model
+@inject HttpClient Http
+@inject IJSRuntime JSRuntime
+@inject NotificationService NotificationService
+
+<style>
+    .chats-container {
+        background-color: #1f1f1f;
+        border-radius: 8px;
+        padding: 20px;
+        height: calc(100% - 40px);
+        overflow-y: auto;
+    }
+
+    .search-container {
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+    }
+
+    .search-container input {
+        flex: 1;
+        padding: 8px;
+        margin-right: 10px;
+        background-color: #333333;
+        color: #ffffff;
+        border: 1px solid #444444;
+        width: 200px;
+    }
+
+    .search-container button {
+        padding: 8px 16px;
+        background-color: #444444;
+        color: #ffffff;
+        border: none;
+        cursor: pointer;
+        margin-right: 10px;
+    }
+
+    .search-container button:hover {
+        background-color: #555555;
+    }
+
+    .chat-item {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        margin-bottom: 10px;
+        background-color: #2d2d2d;
+        border-radius: 8px;
+        cursor: pointer;
+        border: none;
+        width: 100%;
+        text-align: left;
+        color: #ffffff;
+    }
+
+    .chat-item:hover {
+        background-color: #333333;
+    }
+
+    .chat-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background-color: #4CAF50;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        color: white;
+        margin-right: 10px;
+    }
+
+    .chat-info {
+        flex: 1;
+    }
+
+    .chat-name {
+        font-weight: bold;
+        color: #ffffff;
+    }
+
+    .chat-last-message {
+        font-size: 0.9em;
+        color: #888;
+    }
+
+    .chat-time {
+        font-size: 0.8em;
+        color: #888;
+    }
+
+    .loading-text {
+        text-align: center;
+        margin-top: 20px;
+        color: #ffffff;
+    }
+
+    .no-data-text {
+        text-align: center;
+        margin-top: 20px;
+        color: #888;
+    }
+</style>
+
+<div class="chats-container">
+    <div class="search-container">
+        <input type="text" @bind="searchQuery" placeholder="Введите ID пользователя" />
+        <button @onclick="SearchChats">Найти</button>
+        <button @onclick="ResetSearch">Сбросить</button>
+    </div>
+
+    @if (isLoading)
+    {
+        <p class="loading-text">Загрузка...</p>
+    }
+    else if (filteredChats == null || !filteredChats.Any())
+    {
+        <p class="no-data-text">Нет активных диалогов.</p>
+    }
+    else
+    {
+        @foreach (var chat in filteredChats)
+        {
+            <button class="chat-item" @onclick="() => HandleChatSelected(chat.UserId, chat.UserName)">
+                <div class="chat-avatar">@chat.UserName[0]</div>
+                <div class="chat-info">
+                    <div class="chat-name">@chat.UserName</div>
+                    <div class="chat-last-message">@chat.LastMessage</div>
+                </div>
+                <div class="chat-time">@chat.LastMessageTime.ToString("HH:mm")</div>
+            </button>
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int UserIdentifier { get; set; }
+
+    private List<ChatDto> chats = new();
+    private List<ChatDto> filteredChats = new();
+    private bool isLoading = true;
+    private bool _isDisposed = false;
+    private CancellationTokenSource _cancellationTokenSource = new();
+    private string searchQuery = string.Empty;
+
+    [Parameter]
+    public EventCallback<(int RecipientId, string UserName)> OnChatSelected { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadChats();
+    }
+
+    private async Task LoadChats()
+    {
+        if (_isDisposed) return;
+
+        try
+        {
+            isLoading = true;
+            await InvokeAsync(StateHasChanged);
+
+            // Получаем список чатов от API
+            var response = await Http.GetFromJsonAsync<List<ChatDto>>($"api/Chat/dialogs/{UserIdentifier}");
+
+            if (!_isDisposed && response != null)
+            {
+                chats = response;
+                filteredChats = chats; // Изначально отображаем все чаты
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при загрузке диалогов: {ex.Message}");
+        }
+        finally
+        {
+            if (!_isDisposed)
+            {
+                isLoading = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private async Task HandleChatSelected(int recipientId, string userName)
+    {
+        await OnChatSelected.InvokeAsync((recipientId, userName));
+    }
+
+    private async Task SearchChats()
+    {
+        if (int.TryParse(searchQuery, out int userId))
+        {
+            try
+            {
+                isLoading = true;
+                await InvokeAsync(StateHasChanged);
+
+                // Выполняем поиск по ID через API
+                var response = await Http.GetFromJsonAsync<ChatDto>($"api/UserLogin/GetUserById{userId}");
+
+                if (response != null)
+                {
+                    filteredChats = new List<ChatDto> { response };
+                }
+                else
+                {
+                    filteredChats = new List<ChatDto>();
+                    NotificationService.ShowError("Чат с данным пользователем не найден.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка при поиске чата: {ex.Message}");
+                NotificationService.ShowError("Ошибка при поиске чата.");
+            }
+            finally
+            {
+                isLoading = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        else
+        {
+            NotificationService.ShowError("Некорректный ID пользователя.");
+        }
+    }
+
+    private void ResetSearch()
+    {
+        searchQuery = string.Empty;
+        filteredChats = chats; // Сбрасываем фильтрацию
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            _isDisposed = true;
+            _cancellationTokenSource.Cancel();
+            _cancellationTokenSource.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при уничтожении компонента: {ex.Message}");
+        }
+    }
+
+    public class ChatDto
+    {
+        public int UserId { get; set; } // Идентификатор собеседника
+        public string UserName { get; set; } // Имя собеседника
+        public string LastMessage { get; set; } // Последнее сообщение
+        public DateTime LastMessageTime { get; set; } // Время последнего сообщения
+    }
+}

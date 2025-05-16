@@ -1,0 +1,500 @@
+﻿@using System.Collections.Generic
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using System.Text.Json
+@using Microsoft.AspNetCore.SignalR.Client
+@inject IJSRuntime JSRuntime
+@inject HttpClient Http
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<style>
+    .chat-window {
+        display: flex;
+        flex-direction: column;
+        height: 100%; /* Занимает всю высоту родителя */
+        background-color: #2d2d2d;
+        border-radius: 8px;
+        padding: 20px;
+        overflow: hidden;
+    }
+
+    .chat-header {
+        font-size: 1.5em;
+        font-weight: bold;
+        color: #ffffff;
+        margin-bottom: 20px;
+    }
+
+    .chat-messages {
+        flex-grow: 1; /* Занимает все доступное пространство */
+        overflow-y: auto; /* Включаем прокрутку */
+        max-height: calc(100vh - 200px); /* Ограничиваем высоту */
+        margin-bottom: 20px;
+    }
+
+    .message {
+        padding: 10px;
+        border-radius: 8px;
+        background-color: #444444;
+        color: #ffffff;
+        max-width: 70%;
+        margin-bottom: 10px;
+    }
+
+        .message.my-message {
+            align-self: flex-end;
+            background-color: #4CAF50;
+        }
+
+        .message.other-message {
+            align-self: flex-start;
+            background-color: #333333;
+        }
+
+    .message-time {
+        font-size: 0.8em;
+        color: #888;
+        margin-top: 5px;
+    }
+
+    .message-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 5px;
+    }
+
+        .message-actions button {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+            .message-actions button:hover {
+                color: #4CAF50;
+            }
+
+    .chat-input {
+        display: flex;
+        gap: 10px;
+        margin-top: auto; /* Остается внизу */
+    }
+
+        .chat-input input {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #444444;
+            background-color: #333333;
+            color: #ffffff;
+        }
+
+        .chat-input button {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            background-color: #4CAF50;
+            color: #ffffff;
+            cursor: pointer;
+        }
+
+            .chat-input button:hover {
+                background-color: #45a049;
+            }
+</style>
+
+<div class="chat-window">
+    @if (SelectedRecipientId == 0)
+    {
+        <p>Выберите чат, чтобы начать общение.</p>
+    }
+    else
+    {
+        <div class="chat-header">
+            <h3>Личный диалог</h3>
+        </div>
+        <div class="chat-messages" @ref="chatMessagesRef">
+            @foreach (var message in messages)
+            {
+                <div class="message @(message.IsMyMessage ? "my-message" : "other-message")">
+                    <p>@message.Text</p>
+                    <span class="message-time">@message.Time.ToString("HH:mm")</span>
+                    @if (message.IsMyMessage)
+                    {
+                        <div class="message-actions">
+                            <button @onclick="() => EditMessage(message)">✏️</button>
+                            <button @onclick="() => DeleteMessage(message)">🗑️</button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+        <div class="chat-input">
+            <input @bind="newMessage" placeholder="Введите сообщение..." />
+            <button @onclick="SendMessage">Отправить</button>
+        </div>
+    }
+</div>
+
+@code {
+
+
+
+
+
+
+
+    [Parameter]
+    public int SelectedRecipientId { get; set; }
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; }
+    private string UserId { get; set; }
+    [Parameter]
+    public string SelectedChatUserName { get; set; }
+
+    private HubConnection? hubConnection;
+
+    private string movieId = null;
+    private List<MessageDto> messages = new();
+    private string newMessage = string.Empty;
+    private bool _isDisposed = false;
+    private ElementReference chatMessagesRef;
+
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState;
+        UserId = authState.User.FindFirst(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
+
+        await InitializeSignalR();
+
+    }
+
+
+
+    private async Task InitializeSignalR()
+
+    {
+
+        hubConnection = new HubConnectionBuilder()
+
+            .WithUrl("http://localhost:5256/chatHub", options =>
+            {
+
+                // Передаем токен доступа для аутентификации
+
+                options.AccessTokenProvider = async () =>
+                {
+
+                    var authState = await AuthState;
+
+                    return authState.User.FindFirst("access_token")?.Value;
+
+                };
+
+            })
+
+            .WithAutomaticReconnect()
+
+            .Build();
+
+
+
+        // Обработчик для личных сообщений
+
+        hubConnection.On<string, string>("ReceivePrivateMessage", (senderName, message) =>
+
+        {
+
+
+
+            Console.WriteLine($"Мой ID: {UserId}, ID получателя: {SelectedRecipientId}");
+
+            if (SelectedRecipientId != 0)
+
+            {
+
+                messages.Add(new MessageDto
+
+                    {
+
+                        Text = message,
+
+                        Time = DateTime.Now,
+
+                        IsMyMessage = false,
+
+                        SenderName = senderName
+
+                    });
+
+                InvokeAsync(StateHasChanged);
+
+                ScrollToBottom();
+
+            }
+
+        });
+
+
+
+        try
+
+        {
+
+            await hubConnection.StartAsync();
+
+            Console.WriteLine("SignalR подключен");
+
+        }
+
+        catch (Exception ex)
+
+        {
+
+            Console.WriteLine($"Ошибка подключения SignalR: {ex.Message}");
+
+        }
+
+    }
+
+
+
+
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_isDisposed && SelectedRecipientId != 0)
+        {
+            await LoadMessages();
+        }
+    }
+
+    private async Task LoadMessages()
+    {
+        if (_isDisposed) return;
+
+        try
+        {
+            var apiMessages = await Http.GetFromJsonAsync<List<ApiMessageDto>>($"api/Chat/messages/private/{UserId}/{SelectedRecipientId}");
+
+            messages = apiMessages.Select(apiMessage => new MessageDto
+                {
+                    Id = apiMessage.Id,
+                    Text = apiMessage.Message,
+                    Time = apiMessage.SentAt,
+                    IsMyMessage = apiMessage.SenderId == int.Parse(UserId)
+                }).ToList();
+
+            await ScrollToBottom();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка загрузки сообщений: {ex.Message}");
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+
+
+
+
+
+
+    private async Task SendMessage()
+
+    {
+
+        if (!_isDisposed && !string.IsNullOrEmpty(newMessage))
+
+        {
+
+            try
+
+            {
+
+                var authState = await AuthState;
+
+                var senderName = authState.User.Identity.Name;
+
+                var senderId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+
+
+                // Добавляем сообщение в локальный список
+
+                messages.Add(new MessageDto
+
+                    {
+
+                        Text = newMessage,
+
+                        Time = DateTime.Now,
+
+                        IsMyMessage = true,
+
+                        SenderName = senderName
+
+                    });
+
+
+
+                // Отправляем через API
+
+                var response = await Http.PostAsJsonAsync("api/Chat/post", new
+
+                {
+
+                    userId = int.Parse(UserId),
+
+                    recipientId = SelectedRecipientId,
+
+                    message = newMessage,
+
+                    imageUrl = "",
+
+                    movieId = (int?)null
+
+                });
+                    
+
+
+                if (response.IsSuccessStatusCode)
+
+                {
+
+                    // Отправляем через SignalR
+
+                    if (hubConnection?.State == HubConnectionState.Connected)
+
+                    {
+
+                        await hubConnection.SendAsync("SendPrivateMessage",
+                            SelectedRecipientId.ToString(), // ID получателя как строка
+
+                            senderName,
+
+                            newMessage);
+
+                    }
+
+                }
+
+
+
+                newMessage = string.Empty;
+
+                await ScrollToBottom();
+
+                await InvokeAsync(StateHasChanged);
+
+
+            }
+
+            catch (Exception ex)
+
+            {
+
+                Console.WriteLine($"Ошибка: {ex.Message}");
+
+            }
+
+        }
+
+    }
+
+    private async Task EditMessage(MessageDto message)
+    {
+        var newText = await JSRuntime.InvokeAsync<string>("prompt", "Введите новое сообщение:", message.Text);
+        if (!string.IsNullOrWhiteSpace(newText))
+        {
+            try
+            {
+                var response = await Http.PutAsJsonAsync($"api/Chat/edit/{message.Id}", new { Message = newText });
+
+                if (response.IsSuccessStatusCode)
+                {
+                    message.Text = newText;
+                    StateHasChanged();
+                }
+                else
+                {
+                    await JSRuntime.InvokeVoidAsync("alert", "Ошибка при редактировании сообщения.");
+                }
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Ошибка: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task DeleteMessage(MessageDto message)
+    {
+        var confirm = await JSRuntime.InvokeAsync<bool>("confirm", "Вы уверены, что хотите удалить это сообщение?");
+        if (confirm)
+        {
+            try
+            {
+                var response = await Http.DeleteAsync($"api/Chat/delete/{message.Id}");
+
+                if (response.IsSuccessStatusCode)
+                {
+                    messages.Remove(message);
+                    StateHasChanged();
+                }
+                else
+                {
+                    await JSRuntime.InvokeVoidAsync("alert", "Ошибка при удалении сообщения.");
+                }
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Ошибка: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task ScrollToBottom()
+    {
+        await JSRuntime.InvokeVoidAsync("scrollToBottom", chatMessagesRef);
+    }
+
+
+
+    public async ValueTask Dispose()
+    {
+        _isDisposed = true;
+        if (hubConnection != null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+
+    public class MessageDto
+    {
+        public int Id { get; set; }
+        public string Text { get; set; }
+        public DateTime Time { get; set; }
+        public bool IsMyMessage { get; set; }
+        public string SenderName { get; set; }
+    }
+
+    public class ApiMessageDto
+    {
+        public int Id { get; set; }
+        public string Message { get; set; }
+        public string ImageUrl { get; set; }
+        public DateTime SentAt { get; set; }
+        public string SenderName { get; set; }
+        public int SenderId { get; set; }
+        public string RecipientName { get; set; }
+        public int RecipientId { get; set; }
+    }
+}
