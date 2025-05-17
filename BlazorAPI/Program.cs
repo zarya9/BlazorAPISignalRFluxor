@@ -2,6 +2,8 @@ using Blazored.LocalStorage;
 using Microsoft.AspNetCore.Components.Authorization;
 using BlazorAPI.ApiRequest;
 using BlazorAPI.Hubs;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.SignalR.Client;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,7 +13,15 @@ builder.Services.AddServerSideBlazor()
     {
         options.DetailedErrors = true;
     });
+builder.Services.AddSingleton<HubConnection>(sp =>
+{
+    var navigationManager = sp.GetRequiredService<NavigationManager>();
+    var connection = new HubConnectionBuilder()
+        .WithUrl(navigationManager.ToAbsoluteUri("/chatHub"))
+        .Build();
 
+    return connection;
+});
 builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = true;
@@ -66,12 +76,10 @@ app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
+//app.MapHub<ChatHub>("/chatHub");
 
-app.UseEndpoints(endpoints =>
-{
-    endpoints.MapBlazorHub();
-    endpoints.MapHub<ChatHub>("/chatHub");
-    endpoints.MapFallbackToPage("/_Host");
-});
+app.MapHub<ChatHub>("/chatHub");
+app.MapBlazorHub();
+app.MapFallbackToPage("/_Host");
 
 app.Run();
